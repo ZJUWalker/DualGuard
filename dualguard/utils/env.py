@@ -1,0 +1,17 @@
+data_root = '/share'
+file_root='your file root path'
+model_path= '/share/models/'
+nltk_path='/home/wyz/nltk_data/wordnet/'
+dataset_cache_dir = f'{data_root}/datasets/'
+model_download_dir = f'{data_root}/models/'
+model_cache_dir = f'{data_root}/cache/'
+attacker_path = f'{data_root}/models/attacker/'
+mapper_path = f'{data_root}/models/mapper/'
+reducer_path = f'{data_root}//models/reducer/'
+lora_path = f'{data_root}/models/lora/'
+
+#用于模型和log文件的保存根路径，在使用时还需要根据模型和数据集加子目录
+sip_model_dir=f'{file_root}/static/sip'
+warmup_model_dir=f'{file_root}/static/warmup'
+usl_model_dir=f'{file_root}/static/usl'
+log_dir=f'{file_root}/log'

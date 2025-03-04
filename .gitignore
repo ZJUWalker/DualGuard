@@ -1,0 +1,52 @@
+# 忽略训练数据和模型文件
+*.h5            # HDF5 格式模型文件
+*.ckpt          # TensorFlow/PyTorch 检查点文件
+*.pt            # PyTorch 模型文件
+*.pth           # PyTorch 模型文件
+*.onnx          # ONNX 模型文件
+*.weights       # 自定义模型权重文件
+*.tar.gz        # 打包模型文件
+*.zip           # 打包文件
+*.bin
+*model_sfl*.*
+# 忽略数据集
+*/data/          # 忽略整个数据目录
+/model/
+*/models/   # 忽略模型目录
+*.csv           # 数据文件
+*.tsv
+*.json
+*.txt
+*.jsonl
+*.pickle
+*.pkl
+*.arrow
+*.safetensors
+*.npy
+*.npz
+
+
+# 忽略缓存文件
+__pycache__/    # Python 缓存
+*.pyc
+*.pyo
+*.log           # 日志文件
+
+# 忽略环境配置文件
+.env            # 环境变量文件
+.DS_Store       # macOS 系统文件
+Thumbs.db       # Windows 系统文件
+
+# 忽略 Jupyter Notebook 的检查点
+.ipynb_checkpoints/
+
+# 忽略输出文件
+/output/        # 结果文件目录
+*/log/
+*/static/        # 静态文件目录
+*.out           # 输出文件
+*.tmp           # 临时文件
+
+#忽略的文件夹
+*/normal_train/
+*/privacy_train/
