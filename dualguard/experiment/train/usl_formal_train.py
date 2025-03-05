@@ -1,6 +1,6 @@
 import os
 import sys
-sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/Privacy-USL-LLM'))
+sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
 
 from dataclasses import dataclass
 import itertools
@@ -37,6 +37,36 @@ def _check_grad_and_params(model:nn.Module,layer_name):
                 print(f'{name},grad:{param.grad[0,:length].detach().cpu().numpy() if param.grad is not None else "no grad"},param:{param[0,:length].detach().cpu().numpy()}')
                 break
             
+def _frozen_model(split_model:Union[LlamaSplitModel,QwenSplitModel,GPT2SplitModel],config:USLTrainArgs):
+    if config.frozen_head:
+        for _, param in split_model.head_model.named_parameters():
+            param.requires_grad = False
+    if config.frozen_server:
+        for _, param in split_model.server_model.named_parameters():
+            param.requires_grad = False
+    if config.frozen_tail:
+        for _, param in split_model.tail_model.named_parameters():
+            param.requires_grad = False
+            
+def _load_lora_model(split_model:Union[LlamaSplitModel,QwenSplitModel,GPT2SplitModel],config:USLTrainArgs):
+    if config.use_lora:
+        if not config.frozen_head:
+            split_model.head_model=get_peft_model(split_model.head_model,config.lora_config)
+        if not config.frozen_server:
+            split_model.server_model=get_peft_model(split_model.server_model,config.lora_config)
+        if not config.frozen_tail:
+            split_model.tail_model=get_peft_model(split_model.tail_model,config.lora_config)
+            
+def _init_optimizer(model:nn.Module,usl_args:USLTrainArgs):
+    lr=usl_args.optimizer_kwargs['lr']
+    weight_decay=usl_args.optimizer_kwargs['weight_decay']
+    optim=None
+    params=list(filter(lambda p: p.requires_grad, model.parameters()))
+    if len(params)>0:
+        # print(params)
+        optim=usl_args.optimizer(params,lr=lr,weight_decay=weight_decay)
+    return optim
+
 
 def usl_train(
     usl_args:USLTrainArgs, 
@@ -50,19 +80,11 @@ def usl_train(
     test_loader:DataLoader, 
     **kwargs
     ):
-    device = env_args.device
+    # device = env_args.device
     #设置优化器
-    head_optimizer=None
-    if not usl_args.frozen_head:
-        head_optimizer=usl_args.optimizer(filter(lambda p: p.requires_grad, head_model.parameters()),
-                    lr=usl_args.optimizer_kwargs['lr'],
-                    weight_decay=usl_args.optimizer_kwargs['weight_decay'])
-    server_optimizer=usl_args.optimizer(filter(lambda p: p.requires_grad, server_model.parameters()),
-                                         lr=usl_args.optimizer_kwargs['lr'],
-                                         weight_decay=usl_args.optimizer_kwargs['weight_decay'])
-    tail_optimizer=usl_args.optimizer(filter(lambda p: p.requires_grad, tail_model.parameters()),
-                                         lr=usl_args.optimizer_kwargs['lr'],
-                                         weight_decay=usl_args.optimizer_kwargs['weight_decay'])
+    head_optimizer=_init_optimizer(head_model,usl_args)
+    server_optimizer=_init_optimizer(server_model,usl_args)
+    tail_optimizer=_init_optimizer(tail_model,usl_args)
     # print(f"optimizer,memory{torch.cuda.memory_allocated(device)/1024/1024/1024:.3f}G")
     #开始·训练
     train_step=0
@@ -253,33 +275,26 @@ def train_validate_usl(
             else:
                 total_loss = lm_loss
             pass
-        # else:
-        #     raise ValueError("Unsupported head model type")
         avg_lm_loss.update(lm_loss.item())
-        # print(f'fwd output memory allocated:{torch.cuda.memory_allocated(device)/1024/1024/1024:.3f}G')
-        torch.cuda.empty_cache()
         #反向传播
         total_loss.backward()
-
         torch.cuda.empty_cache()
-        # print(f'bwd output memory allocated:{torch.cuda.memory_allocated(device)/1024/1024/1024:.3f}G')
         #优化器更新
-
-        optimizer_tail.step()
-        if train_step % usl_args.log_interval == 0:
-            print('\nserver model before step')
-            _check_grad_and_params(server_model,"10")
-        optimizer_server.step()
-        if train_step % usl_args.log_interval == 0:
-            print('server model after step')
-            _check_grad_and_params(server_model,"10")
-        optimizer_server.zero_grad()
+        if not usl_args.frozen_tail:
+            optimizer_tail.step()
+            optimizer_tail.zero_grad()
+        if not usl_args.frozen_server:
+            optimizer_server.step()
+            optimizer_server.zero_grad()
         if not usl_args.frozen_head:
             head_outputs[0].backward(hidden_states_from_head.grad)
             optimizer_head.step()
             optimizer_head.zero_grad()
-        # print(f'step output memory allocated:{torch.cuda.memory_allocated(device)/1024/1024/1024:.3f}G')
-        # Output the training process data
+        if train_step % usl_args.log_interval == 0:
+            for n,p in server_model.named_parameters():
+                if p.requires_grad:
+                    print(f'param of train step {train_step} : {p[0,:10]}')
+                    break
         if train_step % usl_args.log_interval == 0:
             if pt_tail_model is not None:
                 log_str = (
@@ -297,13 +312,6 @@ def train_validate_usl(
             log_list.append(log_str)
             print(log_str)
             avg_lm_loss.reset()
-
-        # save checkpoint at each save_interval
-        # if train_step % args.save_interval == 0:
-        #     save_checkpoint(
-        #         head_model, server_model, tail_model, args, train_step, args.num_clients
-        #     )
-        # distributed_sync(args)
 
         if train_step % eval_interval== 0:   
             valid_loss, valid_ppl = evaluate_usl(
@@ -471,6 +479,7 @@ def evaluate_usl(
     else:
         return avg_lm_loss.avg, math.exp(avg_lm_loss.avg)
     
+
 def _load_warmup_model_and_tokenizer(usl_args:USLTrainArgs,dataset_args:DatasetArgs,env_args:EnvArgs,dp_config:DPConfig=None):
     simple_name=usl_args.model_name.split('/')[-1]
     add_lora=usl_args.use_lora
@@ -480,11 +489,11 @@ def _load_warmup_model_and_tokenizer(usl_args:USLTrainArgs,dataset_args:DatasetA
     logger.info(f'Loading {simple_name} model and tokenizer...')
     #拆分模型
     if isinstance(pt_model, GPT2LMHeadModel):
-        split_model=GPT2SplitModel(pt_model,SplitModelConfig(3,-1,3,True,True),dp_config=dp_config)
+        split_model=GPT2SplitModel(pt_model,SplitModelConfig(usl_args.split_point,-1,usl_args.split_point,True,True),dp_config=dp_config)
     elif isinstance(pt_model, LlamaForCausalLM):
-        split_model=LlamaSplitModel(pt_model,SplitModelConfig(2,-1,2,True,True),dp_config=dp_config)
+        split_model=LlamaSplitModel(pt_model,SplitModelConfig(usl_args.split_point,-1,usl_args.split_point,True,True),dp_config=dp_config)
     elif isinstance(pt_model, Qwen2ForCausalLM):
-        split_model=QwenSplitModel(pt_model,SplitModelConfig(3,-1,3,True,True),dp_config=dp_config)
+        split_model=QwenSplitModel(pt_model,SplitModelConfig(usl_args.split_point,-1,usl_args.split_point,True,True),dp_config=dp_config)
     else:
         raise ValueError("Unsupported model type")
     if dp_config is None:
@@ -493,6 +502,7 @@ def _load_warmup_model_and_tokenizer(usl_args:USLTrainArgs,dataset_args:DatasetA
         split_model.enable_dp() #需要加噪声
     #加载pt_tail_model（如果需要）
     pt_tail_model=None
+    #是否需要冗余的pt_tail_model
     if usl_args.with_pt_tail_model:
         pt_tail_model=copy.deepcopy(split_model.tail_model) #pt_tail_model用于usl训练中的pt_lm_loss，不需要lora
         for _, param in pt_tail_model.named_parameters():
@@ -504,20 +514,11 @@ def _load_warmup_model_and_tokenizer(usl_args:USLTrainArgs,dataset_args:DatasetA
         split_model.tail_model=torch.load(os.path.join(wp_model_dir,f'{simple_name}/{dataset_args.dataset_name}/tail.pth'),map_location=env_args.device,weights_only=False)
         # split_model.tail_model=torch.load(os.path.join(wp_model_dir,f'{simple_name}/tail_{dataset_args.dataset_name}.pth'),map_location=env_args.device)
     torch.cuda.empty_cache()
-    #加载lora
-    if add_lora:
-        logger.info(f'Loading lora from {lora_config}...')
-        if not usl_args.frozen_head and usl_args.use_naive_usl:
-            split_model.head_model=get_peft_model(split_model.head_model,lora_config)
-        else:
-            for _, param in split_model.head_model.named_parameters():#冻结头部模型
-                param.requires_grad = False
-        split_model.server_model=get_peft_model(split_model.server_model,lora_config)
-        if usl_args.use_naive_usl:
-            split_model.tail_model=get_peft_model(split_model.tail_model,lora_config)
-        if pt_tail_model is not None:#冻结pt_tail_model
-            for _, param in pt_tail_model.named_parameters():
-                param.requires_grad = False
+    #冻结不需要的模型
+    _frozen_model(split_model,usl_args)
+    #对需要加载lora的模型加载lora
+    _load_lora_model(split_model,usl_args)
+    #打印可微调的模型参数数量
     _print_trainable_parameters(split_model.head_model)
     _print_trainable_parameters(split_model.server_model)
     _print_trainable_parameters(split_model.tail_model)
@@ -535,18 +536,16 @@ def _print_trainable_parameters(model:nn.Module):
     print(f'trainable params count:{trainable_params_count}, total params count:{total_prams_count},ratio:{trainable_params_count/total_prams_count:.3f}')    
 
 
-total_args=[dp_sgd_config,dp_forward_config,dxp_config,dualguard_config,naive_config]#可拔插的训练参数
+total_args=[naive_config]#可拔插的训练参数
 
 if __name__ == '__main__':
     #默认值
-    ds_args = DatasetArgs(dataset_name='gsm8k')
-    env_args = EnvArgs(device='cuda:1')
+    ds_args = DatasetArgs(dataset_name='e2e')
+    env_args = EnvArgs(device='cuda:0')
     set_random_seed(env_args.random_seed)
     for args in total_args:
         usl_args=args.usl_args
-        usl_args.log_interval=500
         dp_config=args.dp_config
-        dp_config.epsilon=1.0
         usl_args.model_name='gpt/gpt2-large'
         save_prefix=args.prefix
         simple_name=usl_args.model_name.split('/')[-1]#用于日志和保存模型
@@ -600,7 +599,7 @@ if __name__ == '__main__':
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         # save_dir=f"{usl_args.save_dir}{simple_name}/{ds_args.dataset_name}/{save_prefix}"
-        if not save_prefix in ['naive_usl','dualguard']:
+        if dp_config.add_noise:
             save_prefix+=f"_e_{dp_config.epsilon}"
         # print(f"Saving models to {save_dir}...")
         if not usl_args.frozen_head:

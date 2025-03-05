@@ -2,10 +2,11 @@ from abc import ABC, abstractmethod
 
 from transformers import PretrainedConfig,PreTrainedModel
 from dualguard.defense.dp_config import DPConfig
-from usl.split_config import SplitModelConfig
-
+from dualguard.usl.split_config import SplitModelConfig
 
 import torch
+
+
 
 class SplitModel(PreTrainedModel,ABC):
 

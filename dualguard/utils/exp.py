@@ -4,7 +4,6 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
 from dualguard.utils.configs import DatasetArgs
-from dualguard.utils.datasets.base import FedDataset
 
 _dataset_name_map = {}
 _dataset_dra_train_label_map = {}
@@ -28,7 +27,7 @@ class AverageMeter(object): #
         self.avg = self.sum / self.count
 
 def register_dataset(name, dra_train_label='validation', dra_test_label='test'):
-    # from sfl.data.base import FedDataset
+    from dualguard.utils.datasets.base import FedDataset
     
     def wrapper(cls):
         assert issubclass(
@@ -74,3 +73,11 @@ def get_dataset_class(dataset_name):
         raise AttributeError
     clz = _dataset_name_map[dataset_name]
     return clz
+
+def get_dra_train_label(name):
+    return _dataset_dra_train_label_map[name]
+
+
+def get_dra_test_label(name):
+    return _dataset_dra_train_label_map[name]
+

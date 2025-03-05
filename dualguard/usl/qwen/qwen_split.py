@@ -14,13 +14,14 @@ from transformers.utils import (
     logging,
 )
 from transformers.modeling_outputs import CausalLMOutputWithPast
-# from usl.qwen.split_config import SplitModelConfig
-from usl.split_model import SplitModel,SplitModelConfig
-from usl.split_config import Intermediate
-# from defence import *
-from dualguard.defense.dp_noise import get_noise_multiplier
-from dualguard.defense.dp_config import DP_EMBEDDING, DP_H2S_ACTIVATION, DP_T2S_GRADIENT, DPConfig
 from peft import get_peft_model, LoraConfig, TaskType
+from functools import partial
+
+from dualguard.defense.dp_config import *
+from dualguard.defense.dp_noise import get_noise_multiplier
+from dualguard.defense.dp_config import DPConfig
+from dualguard.usl.split_config import Intermediate, SplitModelConfig
+from dualguard.usl.split_model import SplitModel
 logger = logging.get_logger(__name__)
 
 

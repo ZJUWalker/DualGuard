@@ -1,6 +1,6 @@
 import os
 import sys
-sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/Privacy-USL-LLM'))
+sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
 
 from typing import Union
 import torch

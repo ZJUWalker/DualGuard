@@ -1,3 +1,5 @@
+project_root = '/home/wyz/deeplearning/workspace/DualGuard'
+
 data_root = '/share'
 file_root='your file root path'
 model_path= '/share/models/'

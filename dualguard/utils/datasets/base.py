@@ -1,12 +1,15 @@
 from abc import ABC, abstractmethod
 from functools import partial
 
+import numpy as np
 import torch
 from datasets import disable_progress_bar
 from torch.utils.data import DataLoader
 
-from sfl.utils.data import random_slicing
-from sfl.utils.exp import get_dra_train_label, get_dra_test_label
+from dualguard.utils.exp import get_dra_test_label, get_dra_train_label
+
+# from sfl.utils.data import random_slicing
+# from sfl.utils.exp import get_dra_train_label, get_dra_test_label
 
 
 class FedDataset(ABC):
@@ -138,3 +141,48 @@ class CombinedDataLoader:
             except StopIteration:
                 # delete the DataLoader if there is no more data
                 del iterators[idx]
+
+def lognormal_unbalance_split(num_clients, num_samples, unbalance_sgm):
+    """Assign different sample number for each client using Log-Normal distribution.
+
+    Sample numbers for clients are drawn from Log-Normal distribution.
+
+    Args:
+        num_clients (int): Number of clients for partition.
+        num_samples (int): Total number of samples.
+        unbalance_sgm (float): Log-normal variance. When equals to ``0``, the partition is equal to :func:`balance_partition`.
+
+    Returns:
+        numpy.ndarray: A numpy array consisting ``num_clients`` integer elements, each represents sample number of corresponding clients.
+
+    """
+    num_samples_per_client = int(num_samples / num_clients)
+    if unbalance_sgm != 0:
+        client_sample_nums = np.random.lognormal(mean=np.log(num_samples_per_client),
+                                                 sigma=unbalance_sgm,
+                                                 size=num_clients)
+        client_sample_nums = (
+                client_sample_nums / np.sum(client_sample_nums) * num_samples).astype(int)
+        diff = np.sum(client_sample_nums) - num_samples  # diff <= 0
+
+        # Add/Subtract the excess number starting from first client
+        if diff != 0:
+            for cid in range(num_clients):
+                if client_sample_nums[cid] > diff:
+                    client_sample_nums[cid] -= diff
+                    break
+    else:
+        client_sample_nums = (np.ones(num_clients) * num_samples_per_client).astype(int)
+
+    return client_sample_nums
+
+
+def random_slicing(dataset, num_clients, sgm=0):
+    dict_users, all_idxs = {}, [i for i in range(len(dataset))]
+    if num_clients > 0:
+        user_samples = lognormal_unbalance_split(num_clients, len(dataset), sgm)
+    for i in range(num_clients):
+        dict_users[i] = list(
+            np.random.choice(all_idxs, user_samples[i], replace=False))
+        all_idxs = list(set(all_idxs) - set(dict_users[i]))
+    return dict_users
