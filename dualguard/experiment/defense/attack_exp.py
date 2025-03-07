@@ -4,6 +4,7 @@ from dualguard.usl.llama.llama_split import *
 from dualguard.usl.qwen.qwen_split import *
 from dualguard.usl.gpt.gpt2_split import *
 from dualguard.usl.split_config import SplitModelConfig
+from dualguard.utils import env
 from dualguard.utils.configs import LogArgs, USLTrainArgs, DatasetArgs,EnvArgs,USLTrainArgs,TAGAttackArgs,LampAttackArgs,BISRAttackArgs
 from dualguard.utils.exp import load_datasets
 from dualguard.attack.attack_eval import *
@@ -85,7 +86,7 @@ if __name__ == '__main__':
         dp_config=args.dp_config
         method_prefix=args.prefix
         simple_name=usl_args.model_name.split('/')[-1]#用于日志和保存模型
-        logger=create_logger(log_args=LogArgs(log_dir='/home/wyz/deeplearning/workspace/Privacy-USL-LLM/dualguard/log/eval',
+        logger=create_logger(log_args=LogArgs(log_dir=env.eval_log_dir,
                                               log_file_name=f'usl_defense_eval_{simple_name}_on_{ds_args.dataset_name}.log'))
         if dp_config.add_noise:
             log_str=f"\n{'='*20} {args.info} on model {simple_name} dataset {ds_args.dataset_name} with dp epsilon: {dp_config.epsilon} {'='*20}\n"

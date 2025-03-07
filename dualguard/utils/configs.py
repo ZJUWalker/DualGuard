@@ -13,7 +13,7 @@ class EnvArgs:
     
 @dataclass
 class LogArgs:
-    log_dir: str = field(default=env.log_dir)
+    log_dir: str = field(default=env.sip_log_dir)
     log_level: str = field(default="INFO")
     log_file_name: str = field(default="default.log")
     format: str = field(default="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -95,7 +95,7 @@ class TrainArgs(PretrainedModelArgs):
     optimizer: torch.optim.Optimizer.__class__ = field(default=Adam, metadata={'help':"the optimizer of warmup"})
     optimizer_kwargs: Dict = field(default_factory=lambda: {"lr": 1e-5,"betas": (0.9, 0.999), "eps": 1e-8, "weight_decay": 0, "amsgrad": False}, metadata={'help':"the optimizer kwargs of warmup"})
     half: bool = field(default=False, metadata={'help':"whether to use fp16 precision"})
-    log_interval: int = field(default=100, metadata={'help':"the interval of logging"})
+    log_interval: int = field(default=20, metadata={'help':"the interval of logging"})
     validation_an_epoch: int = field(default=5, metadata={'help':"the interval of validation"})
     log_file: str = field(default="training.log", metadata={'help':"the file of logging"})
     early_stop_patience: int = field(default=5, metadata={'help':"the number of evals without improvement"})
@@ -117,8 +117,8 @@ class WarmupArgs(TrainArgs):
     warm_up_optimizer: torch.optim.Optimizer.__class__ = field(default=Adam, metadata={'help':"the optimizer of warmup"})
     warm_up_optimizer_kwargs: Dict = field(default_factory=lambda: {"lr": 1e-3,"betas": (0.9, 0.999), "eps": 1e-8, "weight_decay": 0, "amsgrad": False}, metadata={'help':"the optimizer kwargs of warmup"})
     intermediate_scale:int = field(default=2,metadata={'help':"the scale of intermeidate model"})
-    lambda_1:float = field(default=30,metadata={'help':"the lambda1 of usl loss"})
-    lambda_2:float = field(default=70,metadata={'help':"the lambda2 of usl loss"})
+    lambda_1:float = field(default=torch.tensor(30.0),metadata={'help':"the lambda1 of usl loss"})
+    lambda_2:float = field(default=torch.tensor(70.0),metadata={'help':"the lambda2 of usl loss"})
 
 @dataclass
 class USLTrainArgs(TrainArgs):

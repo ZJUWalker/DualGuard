@@ -1,8 +1,8 @@
 import os
 import sys
+
 sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
 
-from dataclasses import dataclass
 import itertools
 import math
 
@@ -13,17 +13,18 @@ from dualguard.utils.model import calculate_meteor, calculate_rouge_text, decode
 from dualguard.usl import *
 from dualguard.utils.logger import create_logger
 from dualguard.experiment.method_config import *
+from dualguard.utils import env
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import copy
 
-from typing import List, Union
+from typing import Union
 from transformers import AutoTokenizer
 from transformers.models.gpt2 import GPT2LMHeadModel
 from transformers.models.llama import LlamaForCausalLM
 from transformers.models.qwen2 import Qwen2ForCausalLM
-from peft import get_peft_model, LoraConfig, TaskType,PeftModelForCausalLM
+from peft import get_peft_model, PeftModelForCausalLM
 
 HeadModel=Union[QwenHead,LlamaHead,GPT2Head]
 TailModel=Union[QwenTail,LlamaTail,GPT2Tail]
@@ -553,7 +554,7 @@ if __name__ == '__main__':
             usl_args.lora_config=gpt_lora_config
         # 配置日志记录
         logger=create_logger(LogArgs(
-            log_dir='/home/wyz/deeplearning/workspace/Privacy-USL-LLM/dualguard/log/usl',
+            log_dir=env.usl_log_dir,
             log_file_name=f'{simple_name}_{args.prefix}_{ds_args.dataset_name}.log'
         ))
         if dp_config.add_noise:

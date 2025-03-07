@@ -1,6 +1,8 @@
 import os
 import sys
 
+from dualguard.utils import env
+
 sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
 import torch
 import torch.nn as nn
@@ -203,6 +205,11 @@ def warmup_train(wp_args:WarmupArgs,
     tail_optimizer=wp_args.optimizer(tail_model.parameters(),
                                          lr=wp_args.optimizer_kwargs['lr'],
                                          weight_decay=wp_args.optimizer_kwargs['weight_decay'])
+    wp_args.lambda_1.requires_grad=True
+    wp_args.lambda_2.requires_grad=True
+    weight_optimer=wp_args.optimizer([wp_args.lambda_1,wp_args.lambda_2],
+                                         lr=wp_args.optimizer_kwargs['lr'],
+                                         weight_decay=wp_args.optimizer_kwargs['weight_decay'])
     #设置辅助模型
     hidden_size=0
     if isinstance(head_model, (LlamaHead,QwenHead)) or (isinstance(head_model, PeftModelForCausalLM) and isinstance(head_model.base_model.model, (LlamaHead,QwenHead))):
@@ -248,10 +255,16 @@ def warmup_train(wp_args:WarmupArgs,
             head_optimizer.step()
             tail_optimizer.step()
             pmlp_optimizer.step()
+            weight_optimer.step()
+            #清空梯度
+            weight_optimer.zero_grad()
+            head_model.zero_grad()
+            pmlp_optimizer.zero_grad()
             tail_model.zero_grad()
 
             torch.cuda.empty_cache()
             if (idx+1) % wp_args.log_interval == 0:
+                logger.info(f'current weights: {wp_args.lambda_1.item():.3f} , {wp_args.lambda_2.item():.3f}')
                 log_str = (
                     f"| epoch: {epoch+1} step: {idx+1}"
                     f"| lm_loss: {total_lm_loss /wp_args.log_interval} | attack_loss: {total_attack_loss / wp_args.log_interval} "
@@ -445,7 +458,7 @@ if __name__ == '__main__':
     # 配置日志记录
     filename=f'warmup_training_{simple_model_name}_{ds_args.dataset_name}.log'  # 日志文件名
     # logger=create_logger(f'logger_{simple_model_name}_{dataset_args.dataset_name}',filename)
-    logger=create_logger(log_args=LogArgs(log_dir='/home/wyz/deeplearning/workspace/Privacy-USL-LLM/dualguard/log/warmup',log_file_name=filename))
+    logger=create_logger(log_args=LogArgs(log_dir=env.warmup_log_dir,log_file_name=filename))
     logger.info(f"\n{'='*48} warmup training on model {simple_model_name} on dataset {ds_args.dataset_name} with lora config {wp_args.lora_config} {'='*48}")
     #加载模型和tokenizer
     split_model,pt_tail_model,attack_model,tokenizer=_load_models_and_tokenizer(wp_args,env_args)

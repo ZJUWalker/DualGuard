@@ -71,7 +71,7 @@ if __name__ == '__main__':
     logger.info(f'SIP model training and evaluation done.')
     if not os.path.exists(sip_args.model_save_dir):
         os.makedirs(sip_args.model_save_dir)
-    torch.save(attack_model.state_dict(), os.path.join(sip_args.model_save_dir, f'sip_{sip_args.model_name.split("/")[-1]}.pth'))
+    torch.save(attack_model, os.path.join(sip_args.model_save_dir, f'sip_{sip_args.model_name.split("/")[-1]}.pth'))
     logger.info(f'SIP model saved to {os.path.join(sip_args.model_save_dir, f"sip_{sip_args.model_name.split('/')[-1]}.pth")}')
     # evaluate SIP model
     evaluate_result = sip_model_evaluate(
