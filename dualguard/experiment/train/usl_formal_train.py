@@ -532,7 +532,7 @@ def _print_trainable_parameters(model:nn.Module):
     print(f'trainable params count:{trainable_params_count}, total params count:{total_prams_count},ratio:{trainable_params_count/total_prams_count:.3f}')    
 
 
-total_args=[naive_config]#可拔插的训练参数
+total_args=[dualguard_config]#可拔插的训练参数
 
 if __name__ == '__main__':
     #默认值

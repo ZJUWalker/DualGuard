@@ -82,7 +82,7 @@ def dataset_len(dataloader:DataLoader):
     }
     
 total_args=[dualguard_config] #可拔插的配置
-eval_methods=[AttackMethod.TAG_ATTACK] #可拔插的评估方法
+eval_methods=[AttackMethod.SIP_ATTACK,AttackMethod.TAG_ATTACK] #可拔插的评估方法
 
 if __name__ == '__main__':
 

@@ -27,7 +27,6 @@ def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,mod
     _msk = data["_mask"].to(device)
     with torch.no_grad():
         temp_outputs=model_head(input_ids=_input_ids, attention_mask=attention_mask)
-    model_head.to('cpu')
     total_loss=0
     if pt_tail is not None:
         pt_tail.train()
@@ -53,7 +52,6 @@ def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,mod
             )
         dummy_x:torch.Tensor = temp_outputs[0].clone().detach().requires_grad_(True)
         server_hidden_states=temp_outputs[0].clone().detach().requires_grad_(True)
-        model_server.to('cpu')
         tail_output=model_tail.forward(
                 hidden_status_from_server=server_hidden_states,
                 presents=temp_outputs[1],
@@ -107,7 +105,6 @@ def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,mod
                 )
         dummy_x:torch.Tensor = temp_outputs[0].clone().detach().requires_grad_(True)
         server_hidden_states=temp_outputs[0].clone().detach().requires_grad_(True)
-        model_server.to('cpu')
         tail_output= model_tail.forward(
                 hidden_status_from_server=server_hidden_states,
                 attention_mask=temp_outputs[1],

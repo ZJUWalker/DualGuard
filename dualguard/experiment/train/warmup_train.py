@@ -82,9 +82,9 @@ def warmup_train(wp_args:WarmupArgs,
     tail_optimizer=wp_args.optimizer(tail_model.parameters(),
                                          lr=wp_args.optimizer_kwargs['lr'],
                                          weight_decay=wp_args.optimizer_kwargs['weight_decay'])
-    # weight_optimer=wp_args.optimizer([wp_args.loss_weights],
-    #                                 lr=0.005,
-    #                                 weight_decay=wp_args.optimizer_kwargs['weight_decay'])
+    weight_optimer=wp_args.optimizer([wp_args.loss_weights],
+                                    lr=0.005,
+                                    weight_decay=wp_args.optimizer_kwargs['weight_decay'])
     #设置辅助模型
     hidden_size=0
     if isinstance(head_model, (LlamaHead,QwenHead)) or (isinstance(head_model, PeftModelForCausalLM) and isinstance(head_model.base_model.model, (LlamaHead,QwenHead))):
@@ -120,9 +120,9 @@ def warmup_train(wp_args:WarmupArgs,
             total_pt_tail_loss+=pt_tail_loss.item()
             total_lm_loss+=lm_loss.item()
             # #合并loss
-            bwd_loss=wp_args.attack_loss_w /attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss 
-            # w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
-            # bwd_loss=w[0] * lm_loss + w[1] /attack_loss  + w[2] / pt_tail_loss
+            # bwd_loss=wp_args.attack_loss_w /attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss 
+            w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
+            bwd_loss=w[0] * lm_loss + w[1] /attack_loss  + w[2] / pt_tail_loss
             total_loss+=bwd_loss.item()
             #反向传播
             bwd_loss.backward()
@@ -130,9 +130,9 @@ def warmup_train(wp_args:WarmupArgs,
             head_optimizer.step()
             tail_optimizer.step()
             pmlp_optimizer.step()
-            # weight_optimer.step()
+            weight_optimer.step()
             #清空梯度
-            # weight_optimer.zero_grad()
+            weight_optimer.zero_grad()
             head_model.zero_grad()
             pmlp_optimizer.zero_grad()
             tail_model.zero_grad()
@@ -384,9 +384,9 @@ def warmup_validation(
             pt_tail_loss=pt_tail_output.loss
             
             _attack_loss = calc_unshift_loss(attack_logits, _input)
-            total_loss = wp_args.attack_loss_w /_attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss
-            # w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
-            # total_loss=w[0] * lm_loss + w[1] /_attack_loss  + w[2] / pt_tail_loss
+            # total_loss = wp_args.attack_loss_w /_attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss
+            w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
+            total_loss=w[0] * lm_loss + w[1] /_attack_loss  + w[2] / pt_tail_loss
 
             _total_losses.append(total_loss.item())
             _lm_losses.append(lm_loss.item())
@@ -443,7 +443,7 @@ def _load_models_and_tokenizer(wp_args:WarmupArgs,env_args:EnvArgs):
 if __name__ == '__main__':
     env_args = EnvArgs(device='cuda:1')
     set_random_seed(env_args.random_seed)
-    wp_args = WarmupArgs(warm_up_epochs=2,validation_an_epoch=2,use_lora=True,log_interval=100,lora_config=LoraConfig(
+    wp_args = WarmupArgs(warm_up_epochs=1,validation_an_epoch=2,use_lora=True,log_interval=100,lora_config=LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         r=2,
         lora_alpha=32,
