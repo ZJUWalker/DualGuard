@@ -36,15 +36,14 @@ def _cal_rouge_l_f_and_meteor(tokenizer:AutoTokenizer,recovered_tks:torch.Tensor
     return rouge, meteor
 
 #单个batch的攻击
-def _sip_attack(env_args:EnvArgs, attack_model:nn.Module, head_model:SplitModel,tokenizer:AutoTokenizer, valid_loader:DataLoader=None):
+def _sip_attack(env_args:EnvArgs, attack_model:nn.Module, head_model:SplitModel,tokenizer:AutoTokenizer, valid_loader:DataLoader=None,sample_rate=0.5):
     device = env_args.device
     attack_model.to(device)
     head_model.to(device)
     attack_model.eval()
     rouge_l_f = 0  # 初始化 Rouge_Lf1
     meteors = 0  # 初始化 Meteor
-    # total_steps = int(len(valid_loader)*0.5)  # 获取总步数
-    total_steps=1
+    total_steps = int(len(valid_loader)*sample_rate)  # 获取总步数
     total_loss = 0
     # 创建 tqdm 进度条
     with tqdm(total=total_steps, desc="Attack Progress") as pbar:
@@ -203,7 +202,7 @@ def sip_attack_evaluate(
     return _sip_attack(
         env_args=env_args,
         attack_model=attack_model,
-        lm_net_Head=head_model,
+        head_model=head_model,
         tokenizer=tokenizer,
         valid_loader=data_loader
     )

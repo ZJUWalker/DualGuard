@@ -44,6 +44,7 @@ Thumbs.db       # Windows 系统文件
 /output/        # 结果文件目录
 */log/
 */static/        # 静态文件目录
+/static/        # 静态文件目录
 *.out           # 输出文件
 *.tmp           # 临时文件
 

@@ -1,8 +1,5 @@
-import sys
-import os
 # import logging
 import torch
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer
 from transformers.modeling_outputs import CausalLMOutputWithPast
@@ -12,7 +9,7 @@ from typing import Tuple, Dict, Union, Optional
 from peft import PeftModelForCausalLM
 from typing import Union
 
-from dualguard.attack.tag import forward_and_get_true_grads
+# from dualguard.attack.tag import forward_and_get_true_grads
 from dualguard.usl import *
 from dualguard.utils.model import calc_shifted_loss_logits
 

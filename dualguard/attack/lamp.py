@@ -4,14 +4,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoTokenizer,AutoModelForCausalLM
 from transformers.modeling_outputs import CausalLMOutputWithPast
-from transformers.models.gpt2 import GPT2LMHeadModel
-from transformers.models.qwen2 import Qwen2ForCausalLM
-from transformers.models.llama import LlamaForCausalLM
 
 
 from dualguard.attack.tag import forward_and_get_true_grads
 from dualguard.usl import *
-from typing import Union
+from typing import Optional, Union,Tuple,Dict
 
 import numpy as np
 

@@ -1,8 +1,6 @@
 import os
 import sys
 
-from dualguard.utils import env
-
 sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
 import torch
 import torch.nn as nn
@@ -19,11 +17,13 @@ from transformers.models.qwen2 import Qwen2ForCausalLM
 from peft import get_peft_model, LoraConfig, TaskType,PeftModelForCausalLM
 
 from dualguard.usl import *
+from dualguard.utils import env
 from dualguard.utils.configs import DatasetArgs, EnvArgs, LogArgs, WarmupArgs
 from dualguard.utils.exp import load_datasets
 from dualguard.utils.model import calc_unshift_loss, load_model_and_tokenizer,get_embed_size,get_vocab_size,set_random_seed
 from dualguard.utils.logger import create_logger
 from dualguard.attack.sip import load_sip_model,GRUDRInverter
+from dualguard.experiment.method_config import *
 # sfl.model.attacker.sip.inversion_models.GRUDRInverter
 HeadModel=Union[QwenHead,LlamaHead,GPT2Head]
 TailModel=Union[QwenTail,LlamaTail,GPT2Tail]
@@ -62,129 +62,6 @@ class ProjectionMLP(nn.Module):
         
         return x
 
-
-def warmup_validation(
-    wramup_args:WarmupArgs,
-    head:HeadModel,
-    proj:nn.Module, 
-    tail:TailModel, 
-    pt_tail_model:TailModel, 
-    attack_model:nn.Module, 
-    valid_loader:DataLoader):
-    head.eval()
-    proj.eval()
-    tail.eval()
-    attack_model.eval()
-    pt_tail_model.eval()
-        # avg_lm_loss = AverageMeter()
-    _lm_losses=[]
-    _attack_losses=[]
-    _total_losses = []
-    _lm_losses_before = []
-    device=env_args.device
-    with torch.no_grad():
-        for idx, data in enumerate(valid_loader):
-            _input = data["input"].to(device)
-            _target = data["input"].to(device)
-            _mask = data["attention_mask"].to(device)
-            _lm_mask=data["_mask"].to(device) if data.get("_mask") is not None else None
-            head_output=head.forward(input_ids=_input,attention_mask=_mask)
-            # hidden_states_from_head
-            tail_output={}
-            #获取warmup的中间结果和loss 
-            if isinstance(head, (LlamaHead,QwenHead)) or (isinstance(head, PeftModelForCausalLM) and isinstance(head.base_model.model, (LlamaHead,QwenHead))):
-                hidden_states_from_head,causal_mask,position_ids,\
-                past_key_values,output_attentions,use_cache,cache_position,\
-                all_hidden_states,all_self_attns,return_legacy_cache=head_output
-                project_hidden_states=proj(hidden_states_from_head)
-                tail_output=tail.forward(
-                    hidden_status_from_server=project_hidden_states,
-                    attention_mask=causal_mask,
-                    position_ids=position_ids,
-                    past_key_values=past_key_values,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                    cache_position=cache_position,
-                    all_hidden_states=all_hidden_states,
-                    all_self_attns=all_self_attns,
-                    return_legacy_cache=return_legacy_cache,
-                    labels=_target,
-                    lm_mask=_lm_mask
-                )
-                pass
-            else:
-                hidden_states_from_head,presents,past_key_values,attention_mask,head_mask,\
-                encoder_hidden_states,encoder_attention_mask,use_cache,\
-                output_attentions,output_hidden_states,all_self_attentions,all_hidden_states,all_cross_attentions=head_output
-                project_hidden_states=proj(hidden_states_from_head)
-                tail_output=tail.forward(
-                    hidden_status_from_server=project_hidden_states,
-                    presents=presents,
-                    past_key_values=past_key_values,
-                    attention_mask=attention_mask,
-                    head_mask=head_mask,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    output_hidden_states=output_hidden_states,
-                    all_self_attentions=all_self_attentions,
-                    all_hidden_states=all_hidden_states,
-                    all_cross_attentions=all_cross_attentions,
-                    labels=_target,
-                    lm_mask=_lm_mask
-                )
-            lm_loss=tail_output.loss
-            #获取经过sip模型的输出loss
-            attack_logits=attack_model(hidden_states_from_head)
-            if isinstance(tail, (LlamaTail,QwenTail)) or (isinstance(tail, PeftModelForCausalLM) and isinstance(tail.base_model.model, (LlamaTail,QwenTail))):
-                pt_tail_output=pt_tail_model.forward(
-                    hidden_status_from_server=project_hidden_states,
-                    attention_mask=causal_mask,
-                    position_ids=position_ids,
-                    past_key_values=None,
-                    output_attentions=output_attentions,
-                    use_cache=False,
-                    cache_position=cache_position,
-                    all_hidden_states=all_hidden_states,
-                    all_self_attns=all_self_attns,
-                    return_legacy_cache=return_legacy_cache,
-                    labels=_target,
-                    lm_mask=_lm_mask
-                )
-            else:
-                pt_tail_output=pt_tail_model.forward(
-                    hidden_status_from_server=project_hidden_states,
-                    presents=presents,
-                    past_key_values=None,
-                    attention_mask=attention_mask,
-                    head_mask=head_mask,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_attention_mask=encoder_attention_mask,
-                    use_cache=False,
-                    output_attentions=output_attentions,
-                    output_hidden_states=output_hidden_states,
-                    all_self_attentions=all_self_attentions,
-                    all_hidden_states=all_hidden_states,
-                    all_cross_attentions=all_cross_attentions,
-                    labels=_target,  
-                    lm_mask=_lm_mask       
-                )    
-            pt_tail_loss=pt_tail_output.loss
-            
-            _attack_loss = calc_unshift_loss(attack_logits, _input)
-            total_loss = wp_args.lambda_1 /_attack_loss + lm_loss + wp_args.lambda_2 / pt_tail_loss
-
-            _total_losses.append(total_loss.item())
-            _lm_losses.append(lm_loss.item())
-            _attack_losses.append(_attack_loss.item())
-            _lm_losses_before.append(pt_tail_loss.item())
-            if idx % 100 == 0:
-                print("eval samples:", idx, "loss:", sum(_total_losses) / len(_total_losses))
-
-        return sum(_total_losses) / len(_total_losses), sum(_lm_losses) / len(_lm_losses), \
-                sum(_attack_losses) / len(_attack_losses), sum(_lm_losses_before) / len(_lm_losses_before)
-    
 def warmup_train(wp_args:WarmupArgs,
                  env_args:EnvArgs,
                  head_model:HeadModel,
@@ -205,11 +82,9 @@ def warmup_train(wp_args:WarmupArgs,
     tail_optimizer=wp_args.optimizer(tail_model.parameters(),
                                          lr=wp_args.optimizer_kwargs['lr'],
                                          weight_decay=wp_args.optimizer_kwargs['weight_decay'])
-    wp_args.lambda_1.requires_grad=True
-    wp_args.lambda_2.requires_grad=True
-    weight_optimer=wp_args.optimizer([wp_args.lambda_1,wp_args.lambda_2],
-                                         lr=wp_args.optimizer_kwargs['lr'],
-                                         weight_decay=wp_args.optimizer_kwargs['weight_decay'])
+    # weight_optimer=wp_args.optimizer([wp_args.loss_weights],
+    #                                 lr=0.005,
+    #                                 weight_decay=wp_args.optimizer_kwargs['weight_decay'])
     #设置辅助模型
     hidden_size=0
     if isinstance(head_model, (LlamaHead,QwenHead)) or (isinstance(head_model, PeftModelForCausalLM) and isinstance(head_model.base_model.model, (LlamaHead,QwenHead))):
@@ -245,31 +120,31 @@ def warmup_train(wp_args:WarmupArgs,
             total_pt_tail_loss+=pt_tail_loss.item()
             total_lm_loss+=lm_loss.item()
             # #合并loss
-            bwd_loss=wp_args.lambda_1 /attack_loss + lm_loss + wp_args.lambda_2 / pt_tail_loss
+            bwd_loss=wp_args.attack_loss_w /attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss 
+            # w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
+            # bwd_loss=w[0] * lm_loss + w[1] /attack_loss  + w[2] / pt_tail_loss
             total_loss+=bwd_loss.item()
             #反向传播
             bwd_loss.backward()
-            # if head_model.wte.weight.grad is not None:
-            #     print(head_model.wte.weight.grad[:,10])
             #更新参数
             head_optimizer.step()
             tail_optimizer.step()
             pmlp_optimizer.step()
-            weight_optimer.step()
+            # weight_optimer.step()
             #清空梯度
-            weight_optimer.zero_grad()
+            # weight_optimer.zero_grad()
             head_model.zero_grad()
             pmlp_optimizer.zero_grad()
             tail_model.zero_grad()
 
             torch.cuda.empty_cache()
             if (idx+1) % wp_args.log_interval == 0:
-                logger.info(f'current weights: {wp_args.lambda_1.item():.3f} , {wp_args.lambda_2.item():.3f}')
+                # print('loss_weights:' ,wp_args.loss_weights)
                 log_str = (
                     f"| epoch: {epoch+1} step: {idx+1}"
                     f"| lm_loss: {total_lm_loss /wp_args.log_interval} | attack_loss: {total_attack_loss / wp_args.log_interval} "
                     f"| lm_loss_before: {total_pt_tail_loss / wp_args.log_interval} | totol_loss: {total_loss / wp_args.log_interval}"
-                    f"| memory: {torch.cuda.memory_allocated(device) / 1024 ** 3:.3f}GB"
+                    f"| memory: {torch.cuda.memory_allocated(device) / 1024 ** 3:.3f} GB"
                 )
                 logger.info(log_str)
                 print(log_str)
@@ -399,6 +274,130 @@ def _warmup_forward(head_model:HeadModel,
 
     pass
 
+def warmup_validation(
+    wramup_args:WarmupArgs,
+    head:HeadModel,
+    proj:nn.Module, 
+    tail:TailModel, 
+    pt_tail_model:TailModel, 
+    attack_model:nn.Module, 
+    valid_loader:DataLoader):
+    head.eval()
+    proj.eval()
+    tail.eval()
+    attack_model.eval()
+    pt_tail_model.eval()
+        # avg_lm_loss = AverageMeter()
+    _lm_losses=[]
+    _attack_losses=[]
+    _total_losses = []
+    _lm_losses_before = []
+    device=env_args.device
+    with torch.no_grad():
+        for idx, data in enumerate(valid_loader):
+            _input = data["input"].to(device)
+            _target = data["input"].to(device)
+            _mask = data["attention_mask"].to(device)
+            _lm_mask=data["_mask"].to(device) if data.get("_mask") is not None else None
+            head_output=head.forward(input_ids=_input,attention_mask=_mask)
+            # hidden_states_from_head
+            tail_output={}
+            #获取warmup的中间结果和loss 
+            if isinstance(head, (LlamaHead,QwenHead)) or (isinstance(head, PeftModelForCausalLM) and isinstance(head.base_model.model, (LlamaHead,QwenHead))):
+                hidden_states_from_head,causal_mask,position_ids,\
+                past_key_values,output_attentions,use_cache,cache_position,\
+                all_hidden_states,all_self_attns,return_legacy_cache=head_output
+                project_hidden_states=proj(hidden_states_from_head)
+                tail_output=tail.forward(
+                    hidden_status_from_server=project_hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_values,
+                    output_attentions=output_attentions,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    all_hidden_states=all_hidden_states,
+                    all_self_attns=all_self_attns,
+                    return_legacy_cache=return_legacy_cache,
+                    labels=_target,
+                    lm_mask=_lm_mask
+                )
+                pass
+            else:
+                hidden_states_from_head,presents,past_key_values,attention_mask,head_mask,\
+                encoder_hidden_states,encoder_attention_mask,use_cache,\
+                output_attentions,output_hidden_states,all_self_attentions,all_hidden_states,all_cross_attentions=head_output
+                project_hidden_states=proj(hidden_states_from_head)
+                tail_output=tail.forward(
+                    hidden_status_from_server=project_hidden_states,
+                    presents=presents,
+                    past_key_values=past_key_values,
+                    attention_mask=attention_mask,
+                    head_mask=head_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    all_self_attentions=all_self_attentions,
+                    all_hidden_states=all_hidden_states,
+                    all_cross_attentions=all_cross_attentions,
+                    labels=_target,
+                    lm_mask=_lm_mask
+                )
+            lm_loss=tail_output.loss
+            #获取经过sip模型的输出loss
+            attack_logits=attack_model(hidden_states_from_head)
+            if isinstance(tail, (LlamaTail,QwenTail)) or (isinstance(tail, PeftModelForCausalLM) and isinstance(tail.base_model.model, (LlamaTail,QwenTail))):
+                pt_tail_output=pt_tail_model.forward(
+                    hidden_status_from_server=project_hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_values=None,
+                    output_attentions=output_attentions,
+                    use_cache=False,
+                    cache_position=cache_position,
+                    all_hidden_states=all_hidden_states,
+                    all_self_attns=all_self_attns,
+                    return_legacy_cache=return_legacy_cache,
+                    labels=_target,
+                    lm_mask=_lm_mask
+                )
+            else:
+                pt_tail_output=pt_tail_model.forward(
+                    hidden_status_from_server=project_hidden_states,
+                    presents=presents,
+                    past_key_values=None,
+                    attention_mask=attention_mask,
+                    head_mask=head_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=encoder_attention_mask,
+                    use_cache=False,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    all_self_attentions=all_self_attentions,
+                    all_hidden_states=all_hidden_states,
+                    all_cross_attentions=all_cross_attentions,
+                    labels=_target,  
+                    lm_mask=_lm_mask       
+                )    
+            pt_tail_loss=pt_tail_output.loss
+            
+            _attack_loss = calc_unshift_loss(attack_logits, _input)
+            total_loss = wp_args.attack_loss_w /_attack_loss + lm_loss + wp_args.pt_loss_w / pt_tail_loss
+            # w=torch.nn.functional.softmax(wp_args.loss_weights,dim=0)
+            # total_loss=w[0] * lm_loss + w[1] /_attack_loss  + w[2] / pt_tail_loss
+
+            _total_losses.append(total_loss.item())
+            _lm_losses.append(lm_loss.item())
+            _attack_losses.append(_attack_loss.item())
+            _lm_losses_before.append(pt_tail_loss.item())
+            if idx % 100 == 0:
+                print("eval samples:", idx, "loss:", sum(_total_losses) / len(_total_losses))
+
+        return sum(_total_losses) / len(_total_losses), sum(_lm_losses) / len(_lm_losses), \
+                sum(_attack_losses) / len(_attack_losses), sum(_lm_losses_before) / len(_lm_losses_before)
+    
 
 def _load_split_model_from_pretrained(warmup_args:WarmupArgs,split_config:SplitModelConfig)->Tuple[Union[LlamaSplitModel,QwenSplitModel,GPT2SplitModel],AutoTokenizer]:  
     pt_model,tokenizer=load_model_and_tokenizer(warmup_args.model_name)
@@ -442,17 +441,17 @@ def _load_models_and_tokenizer(wp_args:WarmupArgs,env_args:EnvArgs):
     pass
 
 if __name__ == '__main__':
-    env_args = EnvArgs(device='cuda:0')
+    env_args = EnvArgs(device='cuda:1')
     set_random_seed(env_args.random_seed)
-    wp_args = WarmupArgs(warm_up_epochs=4,validation_an_epoch=2,use_lora=True,log_interval=100,lora_config=LoraConfig(
+    wp_args = WarmupArgs(warm_up_epochs=2,validation_an_epoch=2,use_lora=True,log_interval=100,lora_config=LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         r=2,
         lora_alpha=32,
         lora_dropout=0.1,
         target_modules=["attn.c_proj", "attn.c_attn"]
         # target_modules=['q_proj','v_proj']
-    ),model_name='gpt/gpt2-large')
-    ds_args = DatasetArgs(dataset_name='gsm8k')
+    ),model_name=GPT2_LARGE)
+    ds_args = DatasetArgs(dataset_name=GSM8K)
     #默认值
     simple_model_name=wp_args.model_name.split('/')[-1]#用于日志和保存模型    
     # 配置日志记录

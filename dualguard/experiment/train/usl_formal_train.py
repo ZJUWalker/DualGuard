@@ -292,20 +292,15 @@ def train_validate_usl(
             optimizer_head.step()
             optimizer_head.zero_grad()
         if train_step % usl_args.log_interval == 0:
-            for n,p in server_model.named_parameters():
-                if p.requires_grad:
-                    print(f'param of train step {train_step} : {p[0,:10]}')
-                    break
-        if train_step % usl_args.log_interval == 0:
             if pt_tail_model is not None:
                 log_str = (
-                    f"| epoch {epoch:3d} step {train_step:>8d} | {idx + 1:>6d} batches | "
+                    f"| epoch {epoch:3d} step {train_step:>8d} |"
                     f"loss {avg_lm_loss.val:5.2f} | avg loss {avg_lm_loss.avg:5.2f} | "
                     f"ppl {math.exp(avg_lm_loss.avg):5.2f} | _lm_loss {lm_loss.item():5.2f} | _lm_loss_before {pt_lm_loss.item():5.2f} | total_loss {total_loss.item():5.2f} |"
                 )
             else:
                 log_str = (
-                    f"| epoch {epoch:3d} step {train_step:>8d} | {idx + 1:>6d} batches | "
+                    f"| epoch {epoch:3d} step {train_step:>8d} |"
                     f"loss {avg_lm_loss.val:5.2f} | avg loss {avg_lm_loss.avg:5.2f} | "
                     f"ppl {math.exp(avg_lm_loss.avg):5.2f} | _lm_loss {lm_loss.item():5.2f} | total_loss {total_loss.item():5.2f} |"
                 )
@@ -541,13 +536,14 @@ total_args=[naive_config]#可拔插的训练参数
 
 if __name__ == '__main__':
     #默认值
-    ds_args = DatasetArgs(dataset_name='e2e')
-    env_args = EnvArgs(device='cuda:0')
+    ds_args = DatasetArgs(dataset_name=GSM8K)
+    env_args = EnvArgs(device='cuda:1')
     set_random_seed(env_args.random_seed)
     for args in total_args:
         usl_args=args.usl_args
+        usl_args.log_interval=100
         dp_config=args.dp_config
-        usl_args.model_name='gpt/gpt2-large'
+        usl_args.model_name=GPT2_LARGE
         save_prefix=args.prefix
         simple_name=usl_args.model_name.split('/')[-1]#用于日志和保存模型
         if usl_args.use_lora:
@@ -591,7 +587,7 @@ if __name__ == '__main__':
         )
         # # 验证
         avg_loss, ppl, rouge_l_f, meteor = evaluate_usl(usl_args,env_args,head_model,server_model,tail_model,valid_data_loader,tokenizer,output_similarity=True)
-        res_str=f"evaluate_usl on model {simple_name},dataset {ds_args.dataset_name} and method {save_prefix[:-1]},\
+        res_str=f"evaluate_usl on model {simple_name},dataset {ds_args.dataset_name} and method {save_prefix},\
         eps: {dp_config.epsilon if dp_config.add_noise else False}, -> average loss: {avg_loss}, ppl: {ppl}, rouge-l-f: {rouge_l_f}, meteor: {meteor}"
         logger.info(res_str)
         print(res_str)
@@ -600,7 +596,7 @@ if __name__ == '__main__':
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         # save_dir=f"{usl_args.save_dir}{simple_name}/{ds_args.dataset_name}/{save_prefix}"
-        if dp_config.add_noise:
+        if save_prefix not in ['dualguard','naive_usl']:
             save_prefix+=f"_e_{dp_config.epsilon}"
         # print(f"Saving models to {save_dir}...")
         if not usl_args.frozen_head:

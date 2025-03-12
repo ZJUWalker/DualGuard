@@ -117,8 +117,9 @@ class WarmupArgs(TrainArgs):
     warm_up_optimizer: torch.optim.Optimizer.__class__ = field(default=Adam, metadata={'help':"the optimizer of warmup"})
     warm_up_optimizer_kwargs: Dict = field(default_factory=lambda: {"lr": 1e-3,"betas": (0.9, 0.999), "eps": 1e-8, "weight_decay": 0, "amsgrad": False}, metadata={'help':"the optimizer kwargs of warmup"})
     intermediate_scale:int = field(default=2,metadata={'help':"the scale of intermeidate model"})
-    lambda_1:float = field(default=torch.tensor(30.0),metadata={'help':"the lambda1 of usl loss"})
-    lambda_2:float = field(default=torch.tensor(70.0),metadata={'help':"the lambda2 of usl loss"})
+    loss_weights:torch.Tensor = field(default=torch.nn.Parameter(torch.Tensor([1.0,1.0,1.0]),requires_grad=True),metadata={'help':"the loss weights of warmup model"})
+    pt_loss_w:float =field(default=70.0,metadata={'help':"the loss weight of pt model"})
+    attack_loss_w:float =field(default=30.0,metadata={'help':"the loss weight of attack model"})
 
 @dataclass
 class USLTrainArgs(TrainArgs):
