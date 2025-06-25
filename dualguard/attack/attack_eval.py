@@ -71,6 +71,11 @@ def _sip_attack(env_args:EnvArgs, attack_model:nn.Module, head_model:SplitModel,
             torch.cuda.empty_cache()
     return rouge_l_f / total_steps, meteors / total_steps, total_loss / total_steps
 
+# def randomize_model_params(model:nn.Module):
+#     for p in model.parameters():
+#         if p.requires_grad:
+#             p.data=torch.randn_like(p.data)
+            
 def _tag_attack(
     env_args:EnvArgs,
     tag_args:TAGAttackArgs,
@@ -80,7 +85,8 @@ def _tag_attack(
     forzen_pretrained_tail_model:TailModel,
     dummy_labels_logits:torch.Tensor,
     batch:Dict[str,torch.Tensor],
-    tokenizer:AutoTokenizer
+    tokenizer:AutoTokenizer,
+    pt_tail_weight:float=80.0
     ):
     model_head.eval()
     model_tail.train()
@@ -91,14 +97,14 @@ def _tag_attack(
     beta=tag_args.beta #平滑系数
     # print("original text:",[tokenizer.decode(batch["input"][i])for i in range(1)])
     if tag_args.is_warmup_usl:
-        dummy_x,true_grads,tail_output_logits,attention_mask,position_ids=tag.forward_and_get_true_grads(model_head,model_server,model_tail,batch,device,forzen_pretrained_tail_model)
+        dummy_x,true_grads,tail_output_logits,attention_mask,position_ids=tag.forward_and_get_true_grads(model_head,model_server,model_tail,batch,device,forzen_pretrained_tail_model,pt_tail_weight)
     else:
         dummy_x,true_grads,tail_output_logits,attention_mask,position_ids=tag.forward_and_get_true_grads(model_head,model_server,model_tail,batch,device)
     if dummy_labels_logits is None:
         # print('tag: randomly generate dummy labels logits')
         batch_size, seq_len, vocab_size = tail_output_logits.shape
         dummy_labels_logits = torch.softmax(torch.randn((batch_size, seq_len, vocab_size)).to(dummy_x.device), dim=-1)
-    dummy_lables_logits = tag.dlg_attack(
+    dummy_labels_logits = tag.dlg_attack(
         forzen_llm=forzen_pretrained_tail_model,
         dummy_x=dummy_x,
         dummy_lables_logits=dummy_labels_logits,
@@ -111,7 +117,7 @@ def _tag_attack(
         attention_mask=attention_mask,
         position_ids=position_ids
     )
-    return dummy_lables_logits.argmax(-1) #b x s
+    return dummy_labels_logits.argmax(-1) #b x s
 
 def _lamp_attack(
     env_args:EnvArgs,
@@ -217,6 +223,7 @@ def tag_attack_evaluate(
     server_model:ServerModel,
     tokenizer:AutoTokenizer,
     data_loader:DataLoader,
+    pt_tail_weight:float=80.0
     ):
     device = env_args.device
     _to(device,head_model,tail_model,forzen_tail_model,server_model)
@@ -236,7 +243,8 @@ def tag_attack_evaluate(
             forzen_pretrained_tail_model=forzen_tail_model,
             dummy_labels_logits=None,
             batch=batch,
-            tokenizer=tokenizer
+            tokenizer=tokenizer,
+            pt_tail_weight=pt_tail_weight
         )
         _rouge, _meteor = _cal_rouge_l_f_and_meteor(tokenizer,recovered_tks, batch, device)
         rouge_l_f += _rouge["rouge-l"]["f"]
@@ -264,6 +272,7 @@ def lamp_attack_evaluate(
     for idx, batch in enumerate(data_loader):
         if idx >= total_step:
             break
+        print(repr(f"original text: {[tokenizer.decode(batch['input'][i]) for i in range(1)]}"))
         recovered_tks=_lamp_attack(
             env_args=env_args,
             lamp_args=lamp_args,
@@ -276,6 +285,8 @@ def lamp_attack_evaluate(
             batch=batch,
             tokenizer=tokenizer
         )
+        #还原标签
+        print(repr(f"attacked labels: {tokenizer.decode(recovered_tks[0])}"))
         _rouge, _meteor = _cal_rouge_l_f_and_meteor(tokenizer,recovered_tks, batch, device)
         rouge_l_f += _rouge["rouge-l"]["f"]
         meteor +=_meteor

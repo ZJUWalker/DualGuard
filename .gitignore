@@ -43,11 +43,11 @@ Thumbs.db       # Windows 系统文件
 # 忽略输出文件
 /output/        # 结果文件目录
 */log/
-*/static/        # 静态文件目录
-/static/        # 静态文件目录
+*/static/
 *.out           # 输出文件
 *.tmp           # 临时文件
-
+*/*.egg-info/*     # Python 包信息
+*_ablation.py
 #忽略的文件夹
 */normal_train/
 */privacy_train/

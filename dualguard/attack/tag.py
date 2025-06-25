@@ -10,6 +10,7 @@ from peft import PeftModelForCausalLM
 from typing import Union
 
 # from dualguard.attack.tag import forward_and_get_true_grads
+from dualguard.experiment.train.warmup_train import ProjectionMLP
 from dualguard.usl import *
 from dualguard.utils.model import calc_shifted_loss_logits
 
@@ -19,7 +20,7 @@ HeadModel=Union[QwenHead,LlamaHead,GPT2Head]
 TailModel=Union[QwenTail,LlamaTail,GPT2Tail]
 ServerModel=Union[LlamaServer,QwenServer,GPT2Server]
 
-def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,model_tail:TailModel,data,device,pt_tail:TailModel=None):
+def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,model_tail:TailModel,data,device,pt_tail:TailModel=None,pt_tail_weight=80.00):
      # The client interacts with the server in turn
     _input_ids = data["input"].to(device)
     _target = data["input"].to(device)
@@ -27,66 +28,133 @@ def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,mod
     _msk = data["_mask"].to(device)
     with torch.no_grad():
         temp_outputs=model_head(input_ids=_input_ids, attention_mask=attention_mask)
+    hidden_states_from_head,presents,past_key_values,attention_mask,head_mask,\
+    encoder_hidden_states,encoder_attention_mask,use_cache,\
+    output_attentions,output_hidden_states,all_self_attentions,all_hidden_states,all_cross_attentions=temp_outputs
     total_loss=0
     if pt_tail is not None:
         pt_tail.train()
         for n,p in pt_tail.named_parameters():
             if p.requires_grad:
                 p.requires_grad=False
-    if isinstance(model_server,GPT2Server) or (isinstance(model_server,PeftModelForCausalLM) and isinstance(model_server.base_model.model,GPT2Server)):
+    if isinstance(model_server,ProjectionMLP):
         with torch.no_grad():
-            temp_outputs=model_server(
-                hidden_status_from_head=temp_outputs[0],
-                presents=temp_outputs[1],
-                past_key_values=temp_outputs[2],
-                attention_mask=temp_outputs[3],
-                head_mask=temp_outputs[4],
-                encoder_hidden_states=temp_outputs[5],
-                encoder_attention_mask=temp_outputs[6],
-                use_cache=False,
-                output_attentions=temp_outputs[8],
-                output_hidden_states=temp_outputs[9],
-                all_self_attentions=temp_outputs[10],
-                all_hidden_states=temp_outputs[11],
-                all_cross_attentions=temp_outputs[12],
-            )
-        dummy_x:torch.Tensor = temp_outputs[0].clone().detach().requires_grad_(True)
-        server_hidden_states=temp_outputs[0].clone().detach().requires_grad_(True)
+            mlp_states=model_server(hidden_states_from_head)
+        # tail_output=model_tail.forward(
+        dummy_x:torch.Tensor = mlp_states.clone().detach().requires_grad_(True)
+        server_hidden_states=mlp_states.clone().detach().requires_grad_(True)
         tail_output=model_tail.forward(
-                hidden_status_from_server=server_hidden_states,
-                presents=temp_outputs[1],
-                past_key_values=None,
-                attention_mask=temp_outputs[3],
-                head_mask=temp_outputs[4],
-                encoder_hidden_states=temp_outputs[5],
-                encoder_attention_mask=temp_outputs[6],
-                use_cache=False,
-                output_attentions=temp_outputs[8],
-                output_hidden_states=temp_outputs[9],
-                all_self_attentions=temp_outputs[10],
-                all_hidden_states=temp_outputs[11],
-                all_cross_attentions=temp_outputs[12],
-                labels=_target,
-            )
+            hidden_status_from_server=server_hidden_states,
+            presents=presents,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            all_self_attentions=all_self_attentions,
+            all_hidden_states=all_hidden_states,
+            all_cross_attentions=all_cross_attentions,
+            labels=_target,
+            lm_mask=_msk,
+        )
         total_loss=tail_output.loss
         if pt_tail is not None:
             pt_tail_output=pt_tail.forward(
                 hidden_status_from_server=server_hidden_states,
-                presents=temp_outputs[1],
-                past_key_values=None,
-                attention_mask=temp_outputs[3],
-                head_mask=temp_outputs[4],
-                encoder_hidden_states=temp_outputs[5],
-                encoder_attention_mask=temp_outputs[6],
-                use_cache=False,
-                output_attentions=temp_outputs[8],
-                output_hidden_states=temp_outputs[9],
-                all_self_attentions=temp_outputs[10],
-                all_hidden_states=temp_outputs[11],
-                all_cross_attentions=temp_outputs[12],
+                presents=presents,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_attention_mask,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                all_self_attentions=all_self_attentions,
+                all_hidden_states=all_hidden_states,
+                all_cross_attentions=all_cross_attentions,
                 labels=_target,
+                lm_mask=_msk,
             )
-            total_loss+=70/pt_tail_output.loss
+            print(f'pt lm loss: {pt_tail_output.loss.item()}')
+            pt_tail_loss=pt_tail_output.loss
+            pt_tail_loss.backward()
+            
+            # total_loss+=pt_tail_weight/pt_tail_output.loss
+            # print(f'lm loss+pt lm loss: {total_loss.item()}')
+        attention_mask=temp_outputs[3]
+        position_ids=None
+    elif isinstance(model_server,GPT2Server) or (isinstance(model_server,PeftModelForCausalLM) and isinstance(model_server.base_model.model,GPT2Server)):
+        with torch.no_grad():
+            temp_outputs=model_server.forward(
+                hidden_status_from_head=hidden_states_from_head,
+                presents=presents,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_attention_mask,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                all_self_attentions=all_self_attentions,
+                all_hidden_states=all_hidden_states,
+                all_cross_attentions=all_cross_attentions,
+                labels=_target,
+                lm_mask=_msk,
+            )
+        dummy_x:torch.Tensor = temp_outputs[0].clone().detach().requires_grad_(True)
+        server_hidden_states=temp_outputs[0].clone().detach().requires_grad_(True)
+        tail_output=model_tail.forward(
+            hidden_status_from_server=server_hidden_states,
+            presents=presents,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            head_mask=head_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            all_self_attentions=all_self_attentions,
+            all_hidden_states=all_hidden_states,
+            all_cross_attentions=all_cross_attentions,
+            labels=_target,
+            lm_mask=_msk,
+        )
+        total_loss=tail_output.loss
+        # total_loss.backward(retain_graph=True)
+        # lm_loss_grads=server_hidden_states.grad.clone().detach()
+        # server_hidden_states.grad.zero_()
+        print(f'lm loss: {total_loss.item()}')
+        if pt_tail is not None:
+            pt_tail_output=pt_tail.forward(
+                hidden_status_from_server=server_hidden_states,
+                presents=presents,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_attention_mask,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                all_self_attentions=all_self_attentions,
+                all_hidden_states=all_hidden_states,
+                all_cross_attentions=all_cross_attentions,
+                labels=_target,
+                lm_mask=_msk,
+            )
+            print(f'pt lm loss: {pt_tail_output.loss.item()}')
+            pt_tail_loss=pt_tail_weight/pt_tail_output.loss
+            pt_tail_loss.backward(retain_graph=True)
+            pt_loss_grads=server_hidden_states.grad.clone().detach()
+            server_hidden_states.grad.zero_()
+            total_loss+=pt_tail_weight/pt_tail_output.loss
+            # print(f'lm loss+pt lm loss: {total_loss.item()}')
         attention_mask=temp_outputs[3]
         position_ids=None
     else:
@@ -133,12 +201,16 @@ def forward_and_get_true_grads(model_head:HeadModel,model_server:ServerModel,mod
                 return_legacy_cache=temp_outputs[9],
                 labels=_target,
             )
-            total_loss+=70/pt_tail_output.loss
+            total_loss+=pt_tail_weight/pt_tail_output.loss
+        # print(f'warmuped lm loss: {total_loss.item()}')
         attention_mask=temp_outputs[1]
         position_ids=temp_outputs[2]
     # tail_output:CausalLMOutputWithPast
     total_loss.backward()
     true_grads=server_hidden_states.grad.clone().detach()
+    # print(f'lm loss grads mean: {true_grads.abs().mean().item()},std: {true_grads.abs().std().item()},shape:{true_grads.shape}')
+    # print(f'pt lm loss grads mean: {pt_loss_grads.abs().mean().item()},std: {pt_loss_grads.abs().std().item()},shape:{pt_loss_grads.shape}')
+    # print(f'cos sim: {torch.nn.functional.cosine_similarity(true_grads,pt_loss_grads,dim=-1).mean().item()}')
     if pt_tail is not None: 
         pt_tail.eval()
     return dummy_x,true_grads,tail_output.logits,attention_mask,position_ids
@@ -217,6 +289,7 @@ def dlg_attack(forzen_llm:TailModel,
             dummy_pred:CausalLMOutputWithPast
             logits=dummy_pred.logits
             loss=calc_shifted_loss_logits(logits,torch.softmax(dummy_lables_logits,dim=-1))
+            # print(f'pt lm loss: {loss.item()}')
             #计算loss对dummy_lables的梯度
             dummy_x_grad = torch.autograd.grad(loss,dummy_x,create_graph=True)
             # TAG gradient-matching loss
