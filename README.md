@@ -4,7 +4,7 @@
 
 </div>
 
-This **repository** is associated with the paper "**DualGuard: A Parameter Space Transformation Approach for Bidirectional Defense in Split-Based LLM Fine-Tuning**" [<a href="https://openreview.net/pdf?id=SUh4REipyy">PDF</a>] accepted at
+This **repository** is associated with the paper "**DualGuard: A Parameter Space Transformation Approach for Bidirectional Defense in Split-Based LLM Fine-Tuning**" [<a href="https://github.com/ZJUWalker/DualGuard/edit/main/DualGuard.pdf">PDF</a>] accepted at
 <a href="https://2025.aclweb.org/">The 63rd Annual Meeting of the Association for Computational Linguistics (ACL main'25)</a>
 
 The paper introduces **DualGuard**, a novel defense mechanism designed for protecting privacy during split-based fine-tuning of large language models (LLM-FT). Split learning (SL) provides a secure way for clients to collaborate with remote servers without transmitting raw data, but it is vulnerable to data reconstruction attacks (DRAs) exploiting intermediate activations and gradients. DualGuard addresses these risks by employing a **bidirectional defense strategy**, combining local warm-up parameter space transformation and global fine-tuning parameter space retention.
