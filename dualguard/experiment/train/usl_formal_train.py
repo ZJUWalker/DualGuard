@@ -1,8 +1,6 @@
 import os
 import sys
 
-sys.path.append(os.path.abspath('/home/wyz/deeplearning/workspace/DualGuard'))
-
 import itertools
 import math
 
